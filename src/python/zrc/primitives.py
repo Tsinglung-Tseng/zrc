@@ -1,11 +1,7 @@
 import numpy as np
-import plotly.graph_objects as go
-
-
-class Array:
-    def __init__(self, core):
-        assert type(core) == np.ndarray
-        self.core = core
+from .func_combinator
+        return f"""{self.__class__.__name__} \
+<{self.core}>"""
 
     def map(self, f):
         return Array(np.vectorize(f)(self.core))
@@ -13,19 +9,14 @@ class Array:
     def to_numpy(self):
         return self.core
 
+    def to_tf_tensor(self):
+        raise NotImplementedError
 
-class Pair:
-    def __init__(self, car, cdr):
-        self.car=car
-        self.cdr=cdr
+    def to_torch_tensor(self):
+        raise NotImplementedError
 
-    def map(self, f):
-        if type(self.cdr)==Pair:
-            return Pair(f(self.car), self.cdr.map(f))
-        else:
-            return Pair(f(self.car), None)
-        
-class Cart3:
+
+class Cartesian3:
     """
     A 3-tuple of zcon.array built with Pair:
     
@@ -35,7 +26,7 @@ class Cart3:
         self.core = core
 
     def __getitem__(self, idx):
-        return Cart3.from_xyz(
+        return Cartesian3.from_xyz(
             self.x[idx],
             self.y[idx],
             self.z[idx],
@@ -45,6 +36,9 @@ class Cart3:
         return f"""{self.__class__.__name__} \
 <size: x-{self.x.shape}, y-{self.y.shape}, z-{self.z.shape}>"""
 
+    def __len__(self):
+        return len(self.x)
+    
     @property
     def x(self):
         return self.core.car
@@ -57,13 +51,27 @@ class Cart3:
     def z(self):
         return self.core.cdr.cdr.car
 
+    def map(self, f):
+        raise NotImplementedError
+
+    def hmap(self, f):
+        raise NotImplementedError
+
+    def elemnt_wise_map(self, f: list):
+        assert len(self) == len(f)
+        raise NotImplementedError
+
     @staticmethod
     def from_xyz(x, y, z):
         assert x.shape == y.shape
         assert y.shape == z.shape
         assert type(x) == type(y)
         assert type(x) == type(z)
-        return Cart3(
+
+        #TODO
+        #assert_same_type_n_shape(x, y, z) 
+
+        return Cartesian3(
             Pair(x, Pair(y, Pair(z, None)))
         )
     
@@ -71,10 +79,11 @@ class Cart3:
     def from_one_np_array(arr):
         assert len(arr.shape) == 2
         assert arr.shape[1] == 3
+
         x = arr[:,0]
         y = arr[:,1]
         z = arr[:,2]
-        return Cart3.from_xyz(
+        return Cartesian3.from_xyz(
             x, y, z
         )
 
