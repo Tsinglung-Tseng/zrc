@@ -1,5 +1,6 @@
 import numpy as np
-from .func_combinator import Pair
+import plotly.graph_objects as go
+from .functools import List
 
 
 class Array:
@@ -27,11 +28,16 @@ class Array:
 class Cartesian3:
     """
     A 3-tuple of zcon.array built with Pair:
-    
-    Pair(x, Pair(y, Pair(z, None)))
+   
+    List(x, y, z)
     """
-    def __init__(self, core):
-        self.core = core
+    def __init__(self, x, y, z):
+        assert x.shape == y.shape
+        assert y.shape == z.shape
+        assert type(x) == type(y)
+        assert type(x) == type(z)
+
+        self.core = List(x, y, z)
 
     def __getitem__(self, idx):
         return Cartesian3.from_xyz(
@@ -49,56 +55,50 @@ class Cartesian3:
     
     @property
     def x(self):
-        return self.core.car
+        return self.core[0]
     
     @property
     def y(self):
-        return self.core.cdr.car
+        return self.core[1]
     
     @property
     def z(self):
-        return self.core.cdr.cdr.car
+        return self.core[2]
 
     def map(self, f):
-        raise NotImplementedError
+        """
+        Apply f along x,y,z.
+        """
+        result = self.core.map(f)
+        return Cartesian3(
+            result[0],
+            result[1],
+            result[2],
+        )
 
-    def hmap(self, f):
-        raise NotImplementedError
+    # def hmap(self, f):
+        # """
+        # Apply f to every Cartesian3.
+        # """
+        # result = np.apply_along_axis(f, 0, self.to_numpy())
+        # return Cartesian3(
+            # result[0,:],
+            # result[1,:],
+            # result[2,:],
+        # ) 
 
     def elemnt_wise_map(self, f: list):
         assert len(self) == len(f)
         raise NotImplementedError
 
-    @staticmethod
-    def from_xyz(x, y, z):
-        assert x.shape == y.shape
-        assert y.shape == z.shape
-        assert type(x) == type(y)
-        assert type(x) == type(z)
-
-        #TODO
-        #assert_same_type_n_shape(x, y, z) 
-
-        return Cartesian3(
-            Pair(x, Pair(y, Pair(z, None)))
-        )
+    def to_numpy(self):
+        return np.stack([self.x, self.y, self.z], axis=0)
     
-    @staticmethod
-    def from_one_np_array(arr):
-        assert len(arr.shape) == 2
-        assert arr.shape[1] == 3
-
-        x = arr[:,0]
-        y = arr[:,1]
-        z = arr[:,2]
-        return Cartesian3.from_xyz(
-            x, y, z
-        )
-
     def to_plotly(self, mode="markers", marker = dict(size = 1)):
+        c3_fd = self.map(lambda coord: coord.flatten())
         return go.Scatter3d(
-            x=self.x.flatten(), 
-            y=self.y.flatten(), 
-            z=self.z.flatten(), 
+            c3_fd.x, 
+            c3_fd.y, 
+            c3_fd.z, 
             mode="markers", marker=marker
         )
