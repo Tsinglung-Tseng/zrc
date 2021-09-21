@@ -97,8 +97,8 @@ class Cartesian3:
     def to_plotly(self, mode="markers", marker = dict(size = 1)):
         c3_fd = self.map(lambda coord: coord.flatten())
         return go.Scatter3d(
-            c3_fd.x, 
-            c3_fd.y, 
-            c3_fd.z, 
+            x=c3_fd.x, 
+            y=c3_fd.y, 
+            z=c3_fd.z, 
             mode="markers", marker=marker
         )

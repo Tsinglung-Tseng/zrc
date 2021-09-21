@@ -96,3 +96,44 @@ class List:
     def map(self, f):
         return List(self.core.map(f))
 
+
+class FuncDataFrame:
+    """
+    A functional pandas dataframe wrapper.
+    
+    hits = FuncDataFrame(pd.read_csv("route/to/hits.csv"))
+    hits.where(processName="Compton").count()
+    >>> 123
+    """
+    def __init__(self, df):
+        self.df = df
+    
+    def __getattr__(self, attr):
+        """
+        Get inner pandas dataframe directly, when attr is not seen in wrapper function,
+        designed only for fast access pandas dataframe columns.
+        """
+        return getattr(self.df, attr)
+
+    def _pass_func_to_inner_df(self, f):
+        """Pass procedures to inner pandas dataframe of FuncDataFrame."""
+        return f(self.df)
+    
+    def count(self):
+        return self.shape[0]
+        
+    def select_where(self, **kwargs):
+        """
+        hits.select_where(processName="Compton")
+        """
+        if len(kwargs) != 1:
+            raise ValueError("where clause support one condition at once!")
+        for key, value in kwargs.items():
+            return FuncDataFrame(self.df[self.df[key] == value])
+
+    def select(self, labels):
+        return FuncDataFrame(self.df[labels])
+
+    def to_numpy(self):
+        return self.df.to_numpy()
+
