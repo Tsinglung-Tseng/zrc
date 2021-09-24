@@ -1,3 +1,4 @@
+import functools
 import numpy as np
 import plotly.graph_objects as go
 from .functools import List
@@ -40,7 +41,7 @@ class Cartesian3:
         self.core = List(x, y, z)
 
     def __getitem__(self, idx):
-        return Cartesian3.from_xyz(
+        return Cartesian3(
             self.x[idx],
             self.y[idx],
             self.z[idx],
@@ -52,7 +53,10 @@ class Cartesian3:
 
     def __len__(self):
         return len(self.x)
-    
+
+    def __sub__(self, other): 
+        return self.op_zip(other, np.subtract)
+   
     @property
     def x(self):
         return self.core[0]
@@ -69,12 +73,13 @@ class Cartesian3:
         """
         Apply f along x,y,z.
         """
-        result = self.core.map(f)
-        return Cartesian3(
-            result[0],
-            result[1],
-            result[2],
-        )
+        return Cartesian3(*self.core.map(f))
+
+    def reduce(self, f):
+        return functools.reduce(f, [self.x, self.y, self.z])
+
+    def op_zip(self, other, op):
+        return self.__class__(x=op(self.x, other.x), y=op(self.y, other.y), z=op(self.z, other.z))
 
     # def hmap(self, f):
         # """
