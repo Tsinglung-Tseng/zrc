@@ -6,25 +6,28 @@ from .functools import FuncDataFrame
 
 get_env_var_as_int = lambda var_name: int(os.getenv(var_name))
 
-single_gamma_hist2d = (
-    lambda hits:
-    np.histogram2d(
-        hits.localPosX,
-        hits.localPosY,
-        bins=get_env_var_as_int("SIPM_BINS")
-    )[0].tolist()
-)
 
-def hist_hits_event_group_f(event_hits):
-    get_gamma = lambda gamma_id: FuncDataFrame(
-        Hits(event_hits)
-        .coincidence.raw_hits
-        .groupby('eventID')
-        .apply(lambda h: h.groupby('photonID').get_group(gamma_id))
+def single_gamma_hist2d(hits):
+    return (
+        np.histogram2d(
+            hits.localPosX,
+            hits.localPosY,
+            bins=get_env_var_as_int("SIPM_BINS")
+        )[0].tolist()
     )
 
-    return [get_gamma(1), get_gamma(2)]
 
+def get_most_hit_crystal_optical_photons(gamma): 
+    return (
+        gamma
+        .groupby("crystalID")
+        .get_group(
+            gamma
+            .groupby("crystalID")
+            .count()
+            .idxmax()[0]
+        )
+    )
 
 
 class SipmArray:
@@ -128,6 +131,35 @@ class Hits:
 #         self._coincidence_two_gamma_compton = lambda hits: coincidence(single_has_compton(hits))
         
         self._to_cart3_by_key = lambda key: Cartesian3(*self.raw_hits.select(key).to_numpy().T)
+
+    @property
+    def counts(self):
+        """
+        Caution! counts only works on coincidence.
+
+        Hits(hits_df).coincidence.counts
+        """
+        return (
+	    self.raw_hits
+	    .groupby(['eventID', 'photonID'])
+	    .apply(lambda event_gamma: (
+		FuncDataFrame(event_gamma)
+		# get first interaction crystalID
+		.select_where(crystalID=event_gamma.iloc[0].crystalID)
+		# get back surface hits
+		.select_where(processName='Transportation')
+	    ))
+	    
+	    # calculate hits2d for each event_gamma
+	    .reset_index(drop=True)
+	    .groupby(['eventID', 'photonID'])
+	    .apply(single_gamma_hist2d)
+	    
+	    # merge counts by events
+	    .groupby(['eventID'])
+	    .apply(lambda e: [np.array(e)[0], np.array(e)[1]])
+	)
+
         
     @property
     def single(self):
@@ -200,6 +232,12 @@ class Hits:
     def get_event(self, eventID):
         return self._event(eventID)(self.raw_hits)
     
+    def event_sample_hist_2d(self):
+        gamma_1, gamma_2 = coincidence_group_by_event_n_gamma(self.raw_hits)
+        return [
+            single_gamma_hist2d(get_most_hit_crystal_optical_photons(gamma_1)),
+            single_gamma_hist2d(get_most_hit_crystal_optical_photons(gamma_2)),
+        ] 
 
     def check(self):
         assert (
