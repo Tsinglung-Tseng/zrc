@@ -33,4 +33,3 @@ class Database:
 
     def engine(self):
         return create_engine(self.db_connection)
-

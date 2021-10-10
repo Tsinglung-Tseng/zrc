@@ -13,10 +13,10 @@ def identical(fst, snd):
     >>> (True, int)
     """
     if not isinstance(fst, tuple):
-        return (fst==snd, snd)
+        return (fst == snd, snd)
     else:
         last_result, last_item = fst
-        this_result = op.and_(last_result, last_item==snd)
+        this_result = op.and_(last_result, last_item == snd)
         return (this_result, snd)
 
 
@@ -42,9 +42,10 @@ class Pair:
     map(f=procedure):
         Do the same thing to car/cdr by mapping a procedure to car and cdr.
     """
+
     def __init__(self, car, cdr):
-        self.car=car
-        self.cdr=cdr
+        self.car = car
+        self.cdr = cdr
 
     def map(self, f):
         """
@@ -54,7 +55,7 @@ class Pair:
         ----------
             f : procedure
         """
-        if type(self.cdr)==Pair:
+        if type(self.cdr) == Pair:
             return Pair(f(self.car), self.cdr.map(f))
         elif self.cdr is not None:
             return Pair(f(self.car), f(self.cdr))
@@ -69,27 +70,28 @@ class List:
     List(1,2,3,4).core.map(lambda x:x*2).cdr.cdr.cdr.car
     >>> 8
     """
+
     def __init__(self, *args):
         def make_list(l):
             assert unified_items(l)
             first, *rest = l
 
-            if len(rest)==1:
+            if len(rest) == 1:
                 return Pair(first, Pair(rest[0], None))
             else:
                 return Pair(first, make_list(rest))
-        
+
         if isinstance(args[0], Pair):
             self.core = args[0]
         elif isinstance(args, Iterable):
             self.core = make_list(args)
-    
+
     def __getitem__(self, idx):
-        if idx==0:
+        if idx == 0:
             return self.core.car
         else:
             try:
-                return List(self.core.cdr)[idx-1]
+                return List(self.core.cdr)[idx - 1]
             except TypeError:
                 raise IndexError("Index out of bound.")
 
@@ -100,14 +102,15 @@ class List:
 class FuncDataFrame:
     """
     A functional pandas dataframe wrapper.
-    
+
     hits = FuncDataFrame(pd.read_csv("route/to/hits.csv"))
     hits.where(processName="Compton").count()
     >>> 123
     """
+
     def __init__(self, df):
         self.df = df
-    
+
     def __getattr__(self, attr):
         """
         Get inner pandas dataframe directly, when attr is not seen in wrapper function,
@@ -118,10 +121,10 @@ class FuncDataFrame:
     def _pass_func_to_inner_df(self, f):
         """Pass procedures to inner pandas dataframe of FuncDataFrame."""
         return f(self.df)
-    
+
     def count(self):
         return self.shape[0]
-        
+
     def select_where(self, **kwargs):
         """
         hits.select_where(processName="Compton")
@@ -136,4 +139,3 @@ class FuncDataFrame:
 
     def to_numpy(self):
         return self.df.to_numpy()
-
