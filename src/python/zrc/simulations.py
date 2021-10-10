@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 
 from .functools import FuncDataFrame
 from .primitives import Cartesian3
@@ -12,19 +13,6 @@ def single_gamma_hist2d(hits):
     return np.histogram2d(
         hits.localPosX, hits.localPosY, bins=get_env_var_as_int("SIPM_BINS")
     )[0].tolist()
-
-
-# def get_most_hit_crystal_optical_photons(gamma):
-# return (
-# gamma
-# .groupby("crystalID")
-# .get_group(
-# gamma
-# .groupby("crystalID")
-# .count()
-# .idxmax()[0]
-# )
-# )
 
 
 class SipmArray:
@@ -104,20 +92,6 @@ class Hits:
 
         self._event = lambda event_id: (lambda fdf: fdf.select_where(eventID=event_id))
 
-        # self._gamma_1 = lambda hits: hits.groupby('photonID').get_group(1)
-        # self._gamma_2 = lambda hits: hits.groupby('photonID').get_group(2)
-
-        #         self._coincidence_with_one_gamma_compton_one_gamma_photon_electric = lambda hits: FuncDataFrame(
-        #             hits.loc[
-        #                 single_has_compton(self._gamma_1(coincidence(hits))).index
-        #                 .symmetric_difference(
-        #                     single_has_compton(self._gamma_2(coincidence(hits))).index
-        #                 )
-        #             ]
-        #         )
-
-        #         self._coincidence_two_gamma_compton = lambda hits: coincidence(single_has_compton(hits))
-
         self._to_cart3_by_key = lambda key: Cartesian3(
             *self.raw_hits.select(key).to_numpy().T
         )
@@ -134,20 +108,39 @@ class Hits:
             .apply(
                 lambda event_gamma: (
                     FuncDataFrame(event_gamma)
-                    # get first interaction crystalID
+                    # select optical photon by first interaction crystalID
                     .select_where(crystalID=event_gamma.iloc[0].crystalID)
-                    # get back surface hits
+                    # select by Transportation process, which are those transport from back surface of crystal
                     .select_where(processName="Transportation")
                 )
             )
-            # calculate hits2d for each event_gamma
+            # group again by eventID and photonID
             .reset_index(drop=True)
             .groupby(["eventID", "photonID"])
+            # calculate hits2d for each event_gamma
             .apply(single_gamma_hist2d)
             # merge counts by events
             .groupby(["eventID"])
             .apply(lambda e: [np.array(e)[0], np.array(e)[1]])
         )
+
+    def sipm_center_pos(self, crystalRC):
+        return (
+            self.raw_hits
+            # Hits(hits).coincidence.raw_hits
+            .groupby(['eventID', 'photonID'])
+            .apply(
+                lambda event_gamma: (
+                    SipmArray().sipm_center_3d
+                    .move_by_crystalID(event_gamma.iloc[0].crystalID, crystalRC).flatten().to_numpy()
+                )
+            )
+
+            # merge by events
+            .groupby(['eventID'])
+            .apply(lambda e: np.array([np.array(e)[0], np.array(e)[1]]))
+        )
+    
 
     @property
     def crystalID(self):
@@ -192,42 +185,6 @@ class Hits:
             lambda g: g.processName.value_counts()
         )[:, "Compton"]
 
-    #     @property
-    #     def coincidence_with_one_gamma_compton_one_gamma_photon_electric(self):
-    #         return self._coincidence_with_one_gamma_compton_one_gamma_photon_electric(self.raw_hits)
-
-    #     @property
-    #     def coincidence_two_gamma_compton(self):
-    #         return self._coincidence_two_gamma_compton(self.raw_hits)
-
-    @property
-    def gamma_1(self):
-        return Hits(self.raw_hits.select_where(photonID=1))
-
-    @property
-    def gamma_2(self):
-        return Hits(self.raw_hits.select_where(photonID=2))
-
-    @property
-    def PDG22(self):
-        return Hits(self.raw_hits.select_where(PDGEncoding=22))
-
-    @property
-    def Transportation(self):
-        return self._Transportation(self.raw_hits)
-
-    @property
-    def OpticalAbsorption(self):
-        return self._OpticalAbsorption(self.raw_hits)
-
-    @property
-    def Compton(self):
-        return self._Compton(self.raw_hits)
-
-    @property
-    def PhotoElectric(self):
-        return self._PhotoElectric(self.raw_hits)
-
     @property
     def local_pos(self):
         return self._to_cart3_by_key(["localPosX", "localPosY", "localPosZ"])
@@ -250,7 +207,13 @@ class Hits:
             single_gamma_hist2d(get_most_hit_crystal_optical_photons(gamma_2)),
         ]
 
-    def check(self):
-        assert set(self.coincidence_has_no_compton.eventID.unique()) | set(
-            self.coincidence_has_compton.eventID.unique()
-        ) == set(self.coincidence.eventID.unique())
+    def assemble_sample(self, crystalRC):
+        sample = pd.DataFrame()
+        sample['sourcePosX'] = self.coincidence.sourcePosX
+        sample['sourcePosY'] = self.coincidence.sourcePosY
+        sample['sourcePosZ'] = self.coincidence.sourcePosZ
+        sample['counts']     = self.coincidence.counts
+        sample['crystalID']  = self.coincidence.crystalID
+        sample['sipm_center_pos']  = self.coincidence.sipm_center_pos(crystalRC)  
+        return sample
+
