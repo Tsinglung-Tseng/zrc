@@ -1,4 +1,5 @@
 import os
+import uuid
 import numpy as np
 import pandas as pd
 
@@ -217,3 +218,45 @@ class Hits:
         sample['sipm_center_pos']  = self.coincidence.sipm_center_pos(crystalRC)  
         return sample
 
+    def assign_to_experiment(self, experiment_id):
+        result = pd.DataFrame()
+                
+        result['eventID'] = self.coincidence.raw_hits.eventID.unique()
+        result['experiment_id'] = experiment_id
+                            
+        result.to_csv('experiment_coincidence_event.csv', index=False)
+
+
+def gen_uuid4():
+    yield str(uuid.uuid4())
+
+
+class HitsEventIDMapping:
+    def __init__(self, df):
+        self.df = df
+
+    def get_by_key(self, key):
+        return self.df[key]
+
+    @staticmethod
+    def from_file(path="./eventID_mapping.map"):
+        return HitsEventIDMapping(dict(pd.read_csv(path).to_records(index=False)))
+
+    @staticmethod
+    def build(hits, path="./eventID_mapping.map"):
+        try:
+            id_map = HitsEventIDMapping.from_file().df
+        except FileNotFoundError as e:
+            id_map = {
+                eventID: next(gen_uuid4()) for eventID in hits["eventID"].unique()
+            }
+            pd.DataFrame(
+                list(id_map.items()), columns=["eventID_num", "eventID_uuid"]
+            ).to_csv(path, index=False)
+        return HitsEventIDMapping(id_map)
+
+    def to_dict(self):
+        return self.df
+
+    def do_replace(self, hits):
+        hits["eventID"] = pd.Series([self.df[eventID] for eventID in hits["eventID"]])
