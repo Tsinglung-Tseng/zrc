@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from .functools import FuncDataFrame
-from .primitives import Cartesian3
+from .geometry import Cartesian3
 
 
 get_env_var_as_int = lambda var_name: int(os.getenv(var_name))
@@ -129,19 +129,21 @@ class Hits:
         return (
             self.raw_hits
             # Hits(hits).coincidence.raw_hits
-            .groupby(['eventID', 'photonID'])
+            .groupby(["eventID", "photonID"])
             .apply(
                 lambda event_gamma: (
-                    SipmArray().sipm_center_3d
-                    .move_by_crystalID(event_gamma.iloc[0].crystalID, crystalRC).flatten().to_numpy()
+                    SipmArray()
+                    .sipm_center_3d.move_by_crystalID(
+                        event_gamma.iloc[0].crystalID, crystalRC
+                    )
+                    .flatten()
+                    .to_numpy()
                 )
             )
-
             # merge by events
-            .groupby(['eventID'])
+            .groupby(["eventID"])
             .apply(lambda e: np.array([np.array(e)[0], np.array(e)[1]]))
         )
-    
 
     @property
     def crystalID(self):
@@ -210,21 +212,21 @@ class Hits:
 
     def assemble_sample(self, crystalRC):
         sample = pd.DataFrame()
-        sample['sourcePosX'] = self.coincidence.sourcePosX
-        sample['sourcePosY'] = self.coincidence.sourcePosY
-        sample['sourcePosZ'] = self.coincidence.sourcePosZ
-        sample['counts']     = self.coincidence.counts
-        sample['crystalID']  = self.coincidence.crystalID
-        sample['sipm_center_pos']  = self.coincidence.sipm_center_pos(crystalRC)  
+        sample["sourcePosX"] = self.coincidence.sourcePosX
+        sample["sourcePosY"] = self.coincidence.sourcePosY
+        sample["sourcePosZ"] = self.coincidence.sourcePosZ
+        sample["counts"] = self.coincidence.counts
+        sample["crystalID"] = self.coincidence.crystalID
+        sample["sipm_center_pos"] = self.coincidence.sipm_center_pos(crystalRC)
         return sample
 
     def assign_to_experiment(self, experiment_id):
         result = pd.DataFrame()
-                
-        result['eventID'] = self.coincidence.raw_hits.eventID.unique()
-        result['experiment_id'] = experiment_id
-                            
-        result.to_csv('experiment_coincidence_event.csv', index=False)
+
+        result["eventID"] = self.coincidence.raw_hits.eventID.unique()
+        result["experiment_id"] = experiment_id
+
+        result.to_csv("experiment_coincidence_event.csv", index=False)
 
 
 def gen_uuid4():
@@ -260,3 +262,142 @@ class HitsEventIDMapping:
 
     def do_replace(self, hits):
         hits["eventID"] = pd.Series([self.df[eventID] for eventID in hits["eventID"]])
+
+
+gamma_interaction_filters = {
+    "PE": (
+        lambda g: set([0]) == set(g.nCrystalCompton.unique())
+        and "PhotoElectric" in g.processName.unique()
+    ),
+    "Compton->Escape": (
+        lambda g: set([1]) == set(g.nCrystalCompton.unique())
+        and "PhotoElectric" not in g.processName.unique()
+    ),
+    "Compton->PE": (
+        lambda g: set([1]) == set(g.nCrystalCompton.unique())
+        and "PhotoElectric" in g.processName.unique()
+    ),
+    "Compton->Compton->Escape": (
+        lambda g: set([1, 2]) == set(g.nCrystalCompton.unique())
+        and "PhotoElectric" not in g.processName.unique()
+    ),
+    "Compton->Compton->PE": (
+        lambda g: set([1, 2]) == set(g.nCrystalCompton.unique())
+        and "PhotoElectric" in g.processName.unique()
+    ),
+    "Compton->Compton->Compton->Escape": (
+        lambda g: set([1, 2, 3]) == set(g.nCrystalCompton.unique())
+        and "PhotoElectric" not in g.processName.unique()
+    ),
+    "Compton->Compton->Compton->PE": (
+        lambda g: set([1, 2, 3]) == set(g.nCrystalCompton.unique())
+        and "PhotoElectric" in g.processName.unique()
+    ),
+}
+
+
+def hist2d(hits, bins=8):
+    return np.histogram2d(hits.localPosX, hits.localPosY, bins=bins)[0].tolist()
+
+
+def get_most_hited_crystal(hits):
+    return hits.crystalID.value_counts().idxmax()
+
+
+def processTransportation(hits):
+    """
+    Process ONLY Transportation optical photons.
+    
+    return tuple with 2 fields:
+    1. hist2d of Transportation;
+    2. time sorted time-vs-transportedPhotoPosition array
+    """
+
+    most_hited_crystalID = get_most_hited_crystal(hits)
+    hits = hits[hits.crystalID == most_hited_crystalID]
+
+    return {
+        "hist2d": hist2d(hits[hits.processName == "Transportation"]),
+        "trackLocalTimeVSPos": (
+            hits[hits.processName == "Transportation"][
+                ["trackLocalTime", "time", "localPosX", "localPosY", "localPosZ"]
+            ]
+            .to_numpy()
+            .tolist()
+        ),
+    }
+
+
+def processComptonFollowedByPE(hits):
+    PE_index = hits[hits.processName == "PhotoElectric"].index.values
+
+    assert len(PE_index) == 1
+    PE_index = PE_index[0]
+
+    compton_hits = hits[hits.index < PE_index]
+    PE_hits = hits[hits.index >= PE_index]
+
+    PE_hits_result = interact_step_process(PE_hits)
+    PE_hits_result.update(nCrystalCompton=99)
+    return {
+        "interactionType": "isComptonFollowedByPE",
+        "Compton": interact_step_process(compton_hits),
+        "PhotoElectric": PE_hits_result,
+    }
+
+
+def interact_step_process(hits):
+    hits_processes = set(hits.processName.unique())
+    # isJustCompton
+    if "Compton" in hits_processes and "PhotoElectric" not in hits_processes:
+        return {
+            "interactionType": "isJustCompton",
+            **hits.iloc[0].to_dict(),
+            **processTransportation(hits),
+        }
+
+    # isJustPE
+    elif "Compton" not in hits_processes and "PhotoElectric" in hits_processes:
+        return {
+            "interactionType": "isJustPE",
+            **hits.iloc[0].to_dict(),
+            **processTransportation(hits),
+        }
+
+    # isComptonFollowedByPE
+    elif "Compton" in hits_processes and "PhotoElectric" in hits_processes:
+        result = processComptonFollowedByPE(hits)
+        return result
+
+
+class ComptonHits:
+    def __init__(self, hits):
+        self.hits = hits
+
+    def group_and_process(self):
+        hits_group_and_processed = (
+            self.hits.groupby(["eventID", "photonID"])
+            .filter(lambda g: "msc" not in g.processName.unique())
+            .groupby(["eventID", "photonID", "nCrystalCompton"])
+        ).apply(interact_step_process)
+
+        # Just unpack ComptonFollowedByPE events
+        hits_group_and_processed_ComptonFollowedByPE = hits_group_and_processed[
+            hits_group_and_processed.apply(
+                lambda r: r["interactionType"] == "isComptonFollowedByPE"
+            )
+        ].to_list()
+        tmp = []
+        for i in hits_group_and_processed_ComptonFollowedByPE:
+            tmp.append(i["Compton"])
+            tmp.append(i["PhotoElectric"])
+
+        return pd.DataFrame(tmp).append(
+            pd.DataFrame(
+                hits_group_and_processed[
+                    hits_group_and_processed.apply(
+                        lambda r: r["interactionType"] != "isComptonFollowedByPE"
+                    )
+                ].to_list()
+            )
+        )

@@ -118,6 +118,9 @@ class FuncDataFrame:
         """
         return getattr(self.df, attr)
 
+    def __getitem__(self, key):
+        return self.df[key]
+
     def _pass_func_to_inner_df(self, f):
         """Pass procedures to inner pandas dataframe of FuncDataFrame."""
         return f(self.df)
@@ -129,10 +132,10 @@ class FuncDataFrame:
         """
         hits.select_where(processName="Compton")
         """
-        if len(kwargs) != 1:
-            raise ValueError("where clause support one condition at once!")
+        select_kv = lambda buf, k, v: FuncDataFrame(buf.df[buf.df[k] == v])
         for key, value in kwargs.items():
-            return FuncDataFrame(self.df[self.df[key] == value])
+            self = select_kv(self, key, value)
+        return self
 
     def select(self, labels):
         return FuncDataFrame(self.df[labels])
